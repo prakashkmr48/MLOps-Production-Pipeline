@@ -1,0 +1,63 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: mlops
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+      external_labels:
+        cluster: 'mlops-production'
+        environment: 'production'
+    
+    scrape_configs:
+      # MLOps API metrics
+      - job_name: 'mlops-api'
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names:
+                - mlops
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            action: keep
+            regex: mlops-api
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: namespace
+        metrics_path: /metrics
+        scrape_interval: 10s
+      
+      # Kubernetes cluster metrics
+      - job_name: 'kubernetes-nodes'
+        kubernetes_sd_configs:
+          - role: node
+        relabel_configs:
+          - action: labelmap
+            regex: __meta_kubernetes_node_label_(.+)
+      
+      # cAdvisor metrics for container monitoring
+      - job_name: 'kubernetes-cadvisor'
+        kubernetes_sd_configs:
+          - role: node
+        scheme: https
+        tls_config:
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+        relabel_configs:
+          - action: labelmap
+            regex: __meta_kubernetes_node_label_(.+)
+        metrics_path: /metrics/cadvisor
+    
+    # Alerting rules
+    rule_files:
+      - '/etc/prometheus/rules/*.yml'
+    
+    alerting:
+      alertmanagers:
+        - static_configs:
+            - targets:
+              - 'alertmanager:9093'
